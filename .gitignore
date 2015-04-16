@@ -39,6 +39,6 @@ source/version.c
 test/.deps/
 test/Makefile
 test/Makefile.in
-test/generate_test
+test/generate_test*
 version.h
 include/cloog/version.h
