@@ -49,6 +49,11 @@
 #define LOWERBOUND 0
 #define UPPERBOUND 1
 
+#ifdef DEBUG
+CloogOptions *options;
+#endif
+
+
 struct name_list {
   unsigned nb_names;
   char **names;
@@ -301,18 +306,54 @@ static bool get_expression_bound(struct clast_expr *expr,
     case clast_expr_name :
       valid = get_expression_name_bound((struct clast_name*) expr,
           param_bounds, which_bound, bound);
+#ifdef DEBUG
+      if(!valid) {
+        fprintf(stderr,
+            "\x1b[1m\x1b[35mWarning: Cannot compute the bound of a name expression\x1b[0m\n");
+        fprintf(stderr, "==== Begin name expression dump ====\n");
+        clast_pprint_expr(options, stderr, expr);
+        fprintf(stderr, "\n==== End expression dump ====\n");
+      }
+#endif
       break;
     case clast_expr_bin :
       valid = get_expression_bin_bound((struct clast_binary*) expr,
           param_bounds, which_bound, bound);
+#ifdef DEBUG
+      if(!valid) {
+        fprintf(stderr,
+            "\x1b[1m\x1b[35mWarning: Cannot compute the bound of a binary expression\x1b[0m\n");
+        fprintf(stderr, "==== Begin binary expression expression dump ====\n");
+        clast_pprint_expr(options, stderr, expr);
+        fprintf(stderr, "\n==== End expression dump ====\n");
+      }
+#endif
       break;
     case clast_expr_term :
       valid = get_expression_term_bound((struct clast_term*) expr,
           param_bounds, which_bound, bound);
+#ifdef DEBUG
+      if(!valid) {
+        fprintf(stderr,
+            "\x1b[1m\x1b[35mWarning: Cannot compute the bound of a terminal expression\x1b[0m\n");
+        fprintf(stderr, "==== Begin terminal expression dump ====\n");
+        clast_pprint_expr(options, stderr, expr);
+        fprintf(stderr, "\n==== End expression dump ====\n");
+      }
+#endif
       break;
     case clast_expr_red :
       valid = get_expression_reduction_bound((struct clast_reduction*) expr,
           param_bounds, which_bound, bound);
+#ifdef DEBUG
+      if(!valid) {
+        fprintf(stderr,
+            "\x1b[1m\x1b[35mWarning: Cannot compute the bound of a reduction expression\x1b[0m\n");
+        fprintf(stderr, "==== Begin reduction expression dump ====\n");
+        clast_pprint_expr(options, stderr, expr);
+        fprintf(stderr, "\n==== End expression dump ====\n");
+      }
+#endif
       break;
   }
   return valid;
@@ -329,10 +370,15 @@ static bool update_expr_name_bound(struct clast_name *name, cloog_int_t value,
     --where;
 
   if (which_bound == LOWERBOUND) {
-    if (!cloog_int_is_one(div))
-      cloog_int_fdiv_q(value, value, div);
-
-    set_lowerbound(bounds, where, value);
+    if (!cloog_int_is_one(div)) {
+      cloog_int_t tempval;
+      cloog_int_init(tempval);
+      cloog_int_fdiv_q(tempval, value, div);
+      set_lowerbound(bounds, where, tempval);
+      cloog_int_clear(tempval);
+    }
+    else
+      set_lowerbound(bounds, where, value);
 
 #ifdef DEBUG
     printf("Lower of %s updated to ", bounds->names.names[where]);
@@ -342,10 +388,15 @@ static bool update_expr_name_bound(struct clast_name *name, cloog_int_t value,
 
   }
   else {
-    if (!cloog_int_is_one(div))
-      cloog_int_cdiv_q(value, value, div);
-
-    set_upperbound(bounds, where, value);
+    if (!cloog_int_is_one(div)) {
+      cloog_int_t tempval;
+      cloog_int_init(tempval);
+      cloog_int_cdiv_q(tempval, value, div);
+      set_upperbound(bounds, where, tempval);
+      cloog_int_clear(tempval);
+    }
+    else
+      set_upperbound(bounds, where, value);
 
 #ifdef DEBUG
     printf("Upper of %s updated to ", bounds->names.names[where]);
@@ -360,6 +411,8 @@ static bool update_expr_name_bound(struct clast_name *name, cloog_int_t value,
 static bool update_expr_term_bound(struct clast_term *term, cloog_int_t value,
     struct bounds *bounds, char which_bound, cloog_int_t div) {
 
+  bool retval;
+
   if (!term->var) {
 #ifdef DEBUG
     fprintf(stderr,
@@ -367,12 +420,213 @@ static bool update_expr_term_bound(struct clast_term *term, cloog_int_t value,
 #endif
     return false;
   }
+  if (term->var) {
+    if (!cloog_int_is_one(term->val)) {
+        cloog_int_t tempdiv;
+        cloog_int_init(tempdiv);
+        cloog_int_mul(tempdiv, div, term->val);
+        retval = update_expression_bound(term->var, value, bounds, which_bound,
+            tempdiv);
+        cloog_int_clear(tempdiv);
+    }
+    else
+      retval = update_expression_bound(term->var, value, bounds, which_bound, div);
 
-  if (!cloog_int_is_one(term->val))
-    cloog_int_mul(div, div, term->val);
+    return retval;
+  } else {
+    return false;
+  }
+}
 
-  return update_expression_bound(term->var, value, bounds, which_bound, div);
+static bool update_expr_bin_bound(struct clast_binary *binary,
+    cloog_int_t value, struct bounds *bounds, char which_bound,
+    cloog_int_t div) {
 
+  switch (binary->type) {
+    case clast_bin_div:
+      break;
+    case clast_bin_mod:
+      return update_expression_bound(binary->LHS, value, bounds, which_bound,
+          div);
+      break;
+    case clast_bin_cdiv:
+      break;
+    case clast_bin_fdiv:
+      break;
+  }
+
+#ifdef DEBUG
+  fprintf(stderr,
+      "\x1b[1m\x1b[35mWarning : Trying update binary expression bound\x1b[0m\n");
+  fprintf(stderr, "==== Begin binary expression dump ====\n");
+  clast_pprint_expr(options, stderr, (struct clast_expr*) binary);
+  fprintf(stderr, "\n==== End binary expression dump ====\n");
+#endif
+  return false;
+}
+
+static bool update_expr_red_sum(struct clast_reduction *reduction,
+    cloog_int_t value, struct bounds *bounds, char which_bound,
+    cloog_int_t div) {
+
+  bool changed = false;
+  bool valid;
+  int i, j;
+  cloog_int_t temp_val, expression_bound;
+
+  cloog_int_init(temp_val);
+  cloog_int_init(expression_bound);
+
+  for (i = 0; i < reduction->n; ++i) {
+    cloog_int_set(temp_val, value);
+    cloog_int_set_si(expression_bound, 0);
+    struct clast_term *term = (struct clast_term*) reduction->elts[i];
+    for (j = 0; j < i; ++j) {
+      valid = get_expression_term_bound(
+          (struct clast_term*) reduction->elts[j],
+          bounds,
+          which_bound,
+          &expression_bound);
+      if (!valid)
+        break;
+      cloog_int_sub(temp_val, temp_val, expression_bound);
+    }
+    if (!valid)
+      break;
+    for (j = i+1; j < reduction->n; ++j) {
+      valid = get_expression_term_bound(
+          (struct clast_term*) reduction->elts[j],
+          bounds,
+          which_bound,
+          &expression_bound);
+      if (!valid)
+        break;
+      cloog_int_sub(temp_val, temp_val, expression_bound);
+    }
+    if (!valid)
+      break;
+
+    cloog_int_set_si(expression_bound, 0);
+    valid = get_expression_term_bound(
+        (struct clast_term*) reduction->elts[i],
+        bounds,
+        which_bound,
+        &expression_bound);
+    if (!valid)
+      break;
+
+    if (which_bound == LOWERBOUND) {
+      if (cloog_int_gt(expression_bound, temp_val)) {
+        valid = update_expr_term_bound(
+            term,
+            temp_val,
+            bounds,
+            which_bound,
+            div);
+        if (valid)
+          changed = true;
+      } else {
+        valid = true;
+      }
+    } else {
+      if (cloog_int_lt(expression_bound, temp_val)) {
+        valid = update_expr_term_bound(
+            term,
+            temp_val,
+            bounds,
+            which_bound,
+            div);
+        if (valid)
+          changed = true;
+      } else {
+        valid = true;
+      }
+    }
+    if (!valid)
+      break;
+  }
+
+  cloog_int_clear(temp_val);
+  cloog_int_clear(expression_bound);
+
+  return changed;
+}
+
+static bool update_expr_red_min_max(struct clast_reduction *reduction,
+    cloog_int_t value, struct bounds *bounds, char which_bound,
+    cloog_int_t div) {
+
+  bool changed = false;
+  bool valid;
+  int i;
+  cloog_int_t expression_bound;
+
+  cloog_int_init(expression_bound);
+
+  for (i = 0; i < reduction->n; ++i) {
+    struct clast_term *term = (struct clast_term*) reduction->elts[i];
+    cloog_int_set_si(expression_bound, 0);
+    valid = get_expression_term_bound(
+        (struct clast_term*) reduction->elts[i],
+        bounds,
+        which_bound,
+        &expression_bound);
+    if (!valid)
+      break;
+    if (which_bound == LOWERBOUND) {
+      if (cloog_int_gt(expression_bound, value)) {
+        valid = update_expr_term_bound(
+            term,
+            value,
+            bounds,
+            which_bound,
+            div);
+        if (valid)
+          changed = true;
+      } else {
+        valid = true;
+      }
+    } else {
+      if (cloog_int_lt(expression_bound, value)) {
+        valid = update_expr_term_bound(
+            term,
+            value,
+            bounds,
+            which_bound,
+            div);
+        if (valid)
+          changed = true;
+      } else {
+        valid = true;
+      }
+    }
+    if (!valid)
+      break;
+  }
+
+  cloog_int_clear(expression_bound);
+
+  return changed;
+}
+
+static bool update_expr_red_bound(struct clast_reduction *reduction,
+    cloog_int_t value, struct bounds *bounds, char which_bound,
+    cloog_int_t div) {
+
+  bool retval;
+
+  switch (reduction->type) {
+    case clast_red_sum:
+      retval = update_expr_red_sum(reduction, value, bounds, which_bound, div);
+      break;
+    case clast_red_max:
+    case clast_red_min:
+      retval = update_expr_red_min_max(reduction, value, bounds, which_bound,
+          div);
+      break;
+  }
+
+  return retval;
 }
 
 static bool update_expression_bound(struct clast_expr *expr,
@@ -385,19 +639,16 @@ static bool update_expression_bound(struct clast_expr *expr,
           which_bound, div);
       break;
     case clast_expr_bin :
-#ifdef DEBUG
-      fprintf(stderr,
-          "\x1b[1m\x1b[35mWarning : Trying to change a bound of a binary expression\x1b[0m\n");
-#endif
+      return update_expr_bin_bound((struct clast_binary*) expr, value, bounds,
+          which_bound, div);
       break;
     case clast_expr_term :
       return update_expr_term_bound((struct clast_term*) expr, value, bounds,
           which_bound, div);
       break;
     case clast_expr_red :
-#ifdef DEBUG
-      printf("\x1b[1m\x1b[35mWarning: Trying to change a bound of a reduction expression\x1b[0m\n");
-#endif
+      return update_expr_red_bound((struct clast_reduction*) expr, value,
+          bounds, which_bound, div);
       break;
   }
   return false;
@@ -421,34 +672,18 @@ static bool update_bounds_with_equation(struct bounds *bounds,
 
   if (!get_expression_bound(equation->RHS, bounds, UPPERBOUND,
         &upperbound_rhs)){
-#ifdef DEBUG
-    fprintf(stderr,
-        "\x1b[1m\x1b[35mWarning: Cannot compute the bound of an expression\x1b[0m\n");
-#endif
     return false;
   }
   if (!get_expression_bound(equation->RHS, bounds, LOWERBOUND,
         &lowerbound_rhs)){
-#ifdef DEBUG
-    fprintf(stderr,
-        "\x1b[1m\x1b[35mWarning: Cannot compute the bound of an expression\x1b[0m\n");
-#endif
     return false;
   }
   if (!get_expression_bound(equation->LHS, bounds, UPPERBOUND,
         &upperbound_lhs)){
-#ifdef DEBUG
-    fprintf(stderr,
-        "\x1b[1m\x1b[35mWarning: Cannot compute the bound of an expression\x1b[0m\n");
-#endif
     return false;
   }
   if (!get_expression_bound(equation->LHS, bounds, LOWERBOUND,
         &lowerbound_lhs)){
-#ifdef DEBUG
-    fprintf(stderr,
-        "\x1b[1m\x1b[35mWarning: Cannot compute the bound of an expression\x1b[0m\n");
-#endif
     return false;
   }
 
@@ -594,6 +829,24 @@ static void print_statement_macro(FILE *out, struct bounds *bounds){
   fprintf(out, "exit(EXIT_FAILURE);\\\n} } while(0)\n");
 }
 
+static void print_good_test_declaration(FILE *out, struct bounds *bounds){
+  unsigned int i;
+  fprintf(out, "void test(");
+  for (i = 0; i < bounds->names.nb_names; ++i) {
+    if(i)
+      fprintf(out, ", ");
+    fprintf(out, "int p%u", i);
+  }
+  fprintf(out, ");\n");
+  fprintf(out, "void good(");
+  for (i = 0; i < bounds->names.nb_names; ++i) {
+    if(i)
+      fprintf(out, ", ");
+    fprintf(out, "int p%u", i);
+  }
+  fprintf(out, ");\n\n");
+}
+
 static void fprint_cloog_program_parameters_decl(FILE *out, CloogProgram *p){
   int i;
   for (i = 0; i < p->names->nb_iterators; ++i){
@@ -603,7 +856,7 @@ static void fprint_cloog_program_parameters_decl(FILE *out, CloogProgram *p){
 
 static const char initial_hash_value[] = "2166136261u";
 
-static const char preamble[] =
+static const char preamble1[] =
 "#include <stdio.h>\n"
 "#include <stdlib.h>\n"
 "\n"
@@ -611,7 +864,7 @@ static const char preamble[] =
 "\n"
 "void hash(int v)\n"
 "{\n"
-"  int i;\n"
+"  size_t i;\n"
 "  union u {\n"
 "    int v;\n"
 "    unsigned char c[sizeof(int)];\n"
@@ -623,6 +876,9 @@ static const char preamble[] =
 "  }\n"
 "}\n"
 "\n"
+;
+
+static const char preamble2[] =
 "int main()\n"
 "{\n"
 " unsigned h_good, h_test;\n";
@@ -633,8 +889,8 @@ static void print_macros(FILE *file){
       "#define floord(n,d) (((n)<0) ? -((-(n)+(d)-1)/(d)) : (n)/(d))\n");
   fprintf(file,
       "#define ceild(n,d) (((n)<0) ? -((-(n))/(d)) : ((n)+(d)-1)/(d))\n");
-  fprintf(file, "#define max(x,y)    ((x) > (y) ? (x) : (y))\n") ; 
-  fprintf(file, "#define min(x,y)    ((x) < (y) ? (x) : (y))\n\n") ; 
+  fprintf(file, "#define max(x,y)    ((x) > (y) ? (x) : (y))\n");
+  fprintf(file, "#define min(x,y)    ((x) < (y) ? (x) : (y))\n\n");
 }
 
 static const char postamble[] =
@@ -651,7 +907,7 @@ static const char help[] =
 "\t-h : Print this help\n";
 #else
 static const char help[] =
-"Usage: generate_test_advanced input_file output_file\n"
+"Usage: generate_test_advanced input_file output_file\n";
 #endif
 
 static inline void print_help(FILE *out) {
@@ -664,7 +920,9 @@ int main(int argc, char **argv) {
 
   CloogState *state;
   CloogStatement *statement;
+#ifndef DEBUG
   CloogOptions *options;
+#endif
   CloogProgram *program, *p;
   CloogDomain *context, *iterators, *temp;
   cloog_int_t lowerbound, upperbound, margin;
@@ -740,7 +998,6 @@ int main(int argc, char **argv) {
   struct name_list parameters =
   { rootclast->names->nb_parameters, rootclast->names->parameters };
 
-
   if (parameters.nb_names >= 5) {
     if (!lowerbound_val)
       lowerbound_val = "0";
@@ -795,7 +1052,7 @@ int main(int argc, char **argv) {
   iterators = cloog_domain_intersection(temp = iterators, context);
 
 #ifdef DEBUG
-  cloog_domain_print_constraints(stdout, iterators, 0);
+  //cloog_domain_print_constraints(stdout, iterators, 0);
 #endif
 
   p = cloog_program_malloc();
@@ -813,7 +1070,9 @@ int main(int argc, char **argv) {
   p->blocklist = cloog_block_list_alloc(p->loop->block);
   p = cloog_program_generate(p, options);
 
-  fprintf(output_file, "%s", preamble);
+  fprintf(output_file, "%s", preamble1);
+  print_good_test_declaration(output_file, param_bounds);
+  fprintf(output_file, "%s", preamble2);
   print_statement_macro(output_file, param_bounds);
   fprintf(output_file, "h_good = %s;\n", initial_hash_value);
   fprintf(output_file, "h_test = %s;\n", initial_hash_value);
