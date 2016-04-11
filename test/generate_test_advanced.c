@@ -1102,13 +1102,13 @@ int main(int argc, char **argv) {
 
   free_bounds(param_bounds);
 
+  cloog_program_free(p);
   cloog_options_free(new_options) ;
   cloog_state_free(new_state);
 
   cloog_clast_free(root);
   cloog_domain_free(context);
   cloog_domain_free(temp);
-  cloog_program_free(p);
   cloog_program_free(program);
   cloog_options_free(options) ;
   cloog_state_free(state);
