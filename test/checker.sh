@@ -75,7 +75,9 @@ readonly TEST_TYPE="$6"             ## - "generate" to simply test code
 # Global variables
 ################################################################################
 
-readonly LOG_DIR="$srcdir/logs"
+readonly CLOOG_TEMP="cloog_temp_$$"
+
+readonly LOG_DIR="$srcdir/$$_logs"
 readonly LOG="$LOG_DIR/checker.log"
 readonly SUMMARY="$LOG_DIR/checker.summary.log"
 
@@ -296,38 +298,38 @@ for x in $TEST_FILES; do
   if [ "$TEST_TYPE" = "hybrid" ]; then
     # Run CLooG and compare its output to the supposedly correct output.
     print_step "$input" "$STEP_GENERATING" "$input_log"
-    $cloog $options -q "$input" -o temp_generated.c
+    $cloog $options -q "$input" -o temp_generated_$$.c
 
     print_step "$input" "$STEP_COMPILING" "$input_log"
     fix_env_compile
-    $COMPILE -P -E temp_generated.c -o temp_generated2.c >/dev/null 2>>$input_log
-    $COMPILE -P -E $output -o temp_generated3.c >/dev/null 2>>$input_log
+    $COMPILE -P -E temp_generated_$$.c -o temp_generated2_$$.c >/dev/null 2>>$input_log
+    $COMPILE -P -E $output -o temp_generated3_$$.c >/dev/null 2>>$input_log
 
     print_step "$input" "$STEP_COMPARING" "$input_log"
-    diff -EZwB temp_generated2.c temp_generated3.c >/dev/null 2>>$input_log
+    diff -EZwB temp_generated2_$$.c temp_generated3_$$.c >/dev/null 2>>$input_log
     result=$?
-    rm temp_generated.c temp_generated2.c temp_generated3.c
+    rm temp_generated_$$.c temp_generated2_$$.c temp_generated3_$$.c
 
     if [ ! $result -eq 0 ]; then
       # If the comparison failed, attempt to run the generated programs and
       # compare the results.
       generate_test=$srcdir/generate_test_advanced$EXEEXT
-      test_run=$srcdir/test_hybrid$EXEEXT
+      test_run=$srcdir/$$_test_hybrid$EXEEXT
       good="$srcdir/$name.good.$TEST_OUTPUT_EXTENSION";
       if [ $(echo $options | grep -- "-openscop") ]; then
           generate_test="$generate_test -o"
       fi
 
       print_step "$input" "$STEP_GENERATING_HYBRID" "$input_log"
-      $cloog $options -q -callable 1 "$input" -o test_test.c;
-      $generate_test "$input" test_main.c >/dev/null 2>>$input_log
+      $cloog $options -q -callable 1 "$input" -o test_test_$$.c;
+      $generate_test "$input" test_main_$$.c >/dev/null 2>>$input_log
 
       print_step "$input" "$STEP_COMPILING_HYBRID" "$input_log"
       fix_env_compile
-      $COMPILE -c test_test.c >/dev/null 2>>$input_log
-      $COMPILE -Dtest=good -c $good -o test_good.o >/dev/null 2>>$input_log
+      $COMPILE -c test_test_$$.c -o test_test_$$.o >/dev/null 2>>$input_log
+      $COMPILE -Dtest=good -c $good -o test_good_$$.o >/dev/null 2>>$input_log
       fix_env_link "$test_run"
-      $LINK test_main.c test_test.o test_good.o >/dev/null 2>>$input_log
+      $LINK test_main_$$.c test_test_$$.o test_good_$$.o >/dev/null 2>>$input_log
 
       print_step "$input" "$STEP_COMPARING_HYBRID" "$input_log"
       $test_run;
@@ -349,22 +351,22 @@ for x in $TEST_FILES; do
 
   elif [ "$TEST_TYPE" = "run" ]; then
     generate_test=$srcdir/generate_test_advanced$EXEEXT
-    test_run=$srcdir/test_run$EXEEXT
+    test_run=$srcdir/$$_test_run$EXEEXT
     good="$srcdir/$name.good.$TEST_OUTPUT_EXTENSION";
     if [ $(echo $options | grep -- "-openscop") ]; then
         generate_test="$generate_test -o"
     fi
 
     print_step "$input" "$STEP_GENERATING" "$input_log"
-    $cloog $options -q -callable 1 "$input" -o test_test.c;
-    $generate_test "$input" test_main.c;
+    $cloog $options -q -callable 1 "$input" -o test_test_$$.c;
+    $generate_test "$input" test_main_$$.c;
 
     print_step "$input" "$STEP_COMPILING" "$input_log"
     fix_env_compile
-    $COMPILE -c test_test.c >/dev/null 2>>$input_log
-    $COMPILE -Dtest=good -c $good -o test_good.o >/dev/null 2>>$input_log
+    $COMPILE -c test_test_$$.c -o test_test_$$.o >/dev/null 2>>$input_log
+    $COMPILE -Dtest=good -c $good -o test_good_$$.o >/dev/null 2>>$input_log
     fix_env_link "$test_run"
-    $LINK test_main.c test_test.o test_good.o > /dev/null 2>>$input_log
+    $LINK test_main_$$.c test_test_$$.o test_good_$$.o > /dev/null 2>>$input_log
 
     print_step "$input" "$STEP_RUNNING" "$input_log"
     $test_run;
@@ -381,11 +383,11 @@ for x in $TEST_FILES; do
   elif [ "$TEST_TYPE" = "valgrind" ]; then
     print_step "$input" "$STEP_VALGRIND" "$input_log"
     libtool --mode=execute valgrind --error-exitcode=1 --leak-check=full \
-            $cloog $options -q "$input" >/dev/null 2>>cloog_temp
+            $cloog $options -q "$input" >/dev/null 2>>$CLOOG_TEMP
     errors=$?;
 
-    leaks=$(grep "in use at exit:" cloog_temp | cut -f 2 -d ':')
-    reachable=$(tail cloog_temp | grep "still reachable:" | cut -f 2 -d ':')
+    leaks=$(grep "in use at exit:" $CLOOG_TEMP | cut -f 2 -d ':')
+    reachable=$(tail $CLOOG_TEMP | grep "still reachable:" | cut -f 2 -d ':')
 
     elapsed_time=$(get_elapsed_time $elapsed_time $(get_seconds))
     if [ "$errors" = "1" ]; then
@@ -425,22 +427,22 @@ for x in $TEST_FILES; do
       test_passed "$input" "$elapsed_time" "$options"
     fi;
 
-    cat cloog_temp >> $input_log
-    rm -f cloog_temp
+    cat $CLOOG_TEMP >> $input_log
+    rm -f $CLOOG_TEMP
 
   else
     # Test the file generation.
     print_step "$input" "$STEP_GENERATING" "$input_log"
-    $cloog $options -q "$input" -o cloog_temp 2>> $input_log
-    diff -u -w --ignore-matching-lines='CLooG' $output cloog_temp;
+    $cloog $options -q "$input" -o $CLOOG_TEMP 2>> $input_log
+    diff -u -w --ignore-matching-lines='CLooG' $output $CLOOG_TEMP;
     result=$?;
     if [ "$result" -ne "0" ] && [ "$TEST_TYPE" = "regenerate" ]; then
       print_step "$input" "$STEP_REGENERATING" "$input_log"
-      cp cloog_temp $output;
+      cp $CLOOG_TEMP $output;
     fi;
     elapsed_time=$(get_elapsed_time $elapsed_time $(get_seconds))
     test_done "$input" "$elapsed_time" "$options"
-    rm -f cloog_temp;
+    rm -f $CLOOG_TEMP;
   fi;
 
   if [ "$result" -ne "0" ]; then
