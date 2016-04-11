@@ -1039,7 +1039,7 @@ int main(int argc, char **argv) {
 
   }
 
-  iterators = cloog_domain_from_vec(state, param_bounds->lowerbound.value,
+  iterators = cloog_domain_from_bounds(state, param_bounds->lowerbound.value,
       param_bounds->upperbound.value);
 
   iterators = cloog_domain_intersection(temp = iterators, context);
